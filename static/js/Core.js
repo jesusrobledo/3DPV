@@ -99,8 +99,15 @@ export class Shader{
 	    gl.clearColor(0.5,0.5,0.5,1.0);
 	    gl.clear(gl.COLOR_BUFFER_BIT);
 
-        for (let id in uniforms){
-            gl.uniform3f(gl.getUniformLocation(this.program, id), uniforms[id][0],uniforms[id][1],uniforms[id][2]);
+        for (let i in this.uniforms){
+            switch (this.uniforms[i].type){
+                case "vec3":
+				    gl.uniform3fv(gl.getUniformLocation(this.program, this.uniforms[i].name),uniforms[this.uniforms[i].name]);
+					break;
+                case 'f':
+                    gl.uniform1f(gl.getUniformLocation(this.program, this.uniforms[i].name),uniforms[this.uniforms[i].name]);
+					break;
+            }
         }
 
         for (let item of Object.values(this.webGLObject)){
@@ -137,6 +144,7 @@ export class GPUEngine{
         let shadersDefinition = [];
         let shadersData = [];
         shadersDefinition.push({name:'test',file:'Test.shd'});
+        shadersDefinition.push({name:'test2',file:'Test2.shd'});
         shadersData = await Promise.all(shadersDefinition.map(data => this.loadShader(data)));
         for (const shaderData of shadersData){
             this.shaders[shaderData.name] = new Shader(this.gl,shaderData);
@@ -176,25 +184,24 @@ export class GPUEngine{
         }, 'image/png');
     }
 }
-/*
-export class CoreObject{
+export class Scene3D{
 
     constructor(){
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
-        this.camera.position.z = 5;
+        this.camera.position.z = 3;
         this.renderer = new THREE.WebGLRenderer();
         this.renderer.setSize( window.innerWidth, window.innerHeight );
-        this.shaders = {};
-        const canvas = document.getElementById("canvas");
-        this.gl = canvas.getContext("webgl2");
-        //this.gl = this.renderer.getContext("webgl2");
+        this.gl = this.renderer.getContext("webgl2");
         document.body.appendChild( this.renderer.domElement );
-        this.FBO = new FBO(this.gl,300,300);
+        this.myTexture = new THREE.Texture();
     }
     init(){
         const geometry = new THREE.BoxGeometry( 1, 1, 1 );
-        const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
+        const textureLoader = new THREE.TextureLoader();
+        const colorTexture = textureLoader.load('static/textures/Calibration.jpg');
+        colorTexture.colorSpace = THREE.SRGBColorSpace;
+        const material = new THREE.MeshBasicMaterial( { map: colorTexture, } );
         const cube = new THREE.Mesh( geometry, material );
         this.scene.add(cube);
     }
@@ -203,30 +210,13 @@ export class CoreObject{
         this.scene.children[0].rotation.y = time / 2000;
         this.renderer.render( this.scene, this.camera );
     }
-    async loadShaderData (data){
-        const response = await fetch('/load_shader_code', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({shaderFile:data.file})
-        });
-        const responseData = await response.json();
-        return {
-            name:data.name,
-            vertexShader:responseData.vertexShader,
-            fragmentShader:responseData.fragmentShader,
-            attributes:Object.values(responseData.attributes),
-            uniforms:Object.values(responseData.uniforms)
-        };
+    /*
+    captureExternalTexture(texture){
+        this.bitmapTexture = new THREE.Texture(texture);
+        bitmapTexture.colorSpace = THREE.SRGBColorSpace;
+        bitmapTexture.needsUpdate = true;
     }
-    async createGPUEnvironment(){
-        let shadersDefinition = [];
-        let shadersData = [];
-        shadersDefinition.push({name:'test',file:'Test.shd'});
-        shadersData = await Promise.all(shadersDefinition.map(data => this.loadShaderData(data)));
-        for (const shaderData of shadersData){
-            this.shaders[shaderData.name] = new Shader(this.gl,shaderData);
-        }
-    }
+    */
 }
-*/
+
 
