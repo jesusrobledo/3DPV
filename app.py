@@ -8,8 +8,9 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return render_template("Main3.html")
+    return render_template("Main4.html")
 
+'''
 @app.route("/load_shader_code", methods=["POST", "GET"])
 def load_shader_code():
     data = request.get_json()
@@ -25,6 +26,7 @@ def load_shader_code():
             "fragmentShader": shaderData["fragmentShader"],
         }
     )
+'''
 
 if __name__ == "__main__":
     app.run(debug=True)
