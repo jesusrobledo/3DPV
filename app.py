@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return render_template("Main4.html")
+    return render_template("Main.html")
 
 '''
 @app.route("/load_shader_code", methods=["POST", "GET"])
