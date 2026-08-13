@@ -1,0 +1,56 @@
+attributes:
+  0:
+    name: 'id'
+    size: 1
+    type: 'float'
+
+uniforms:
+  0:
+    name: 'size'
+    type: 'f'
+
+vertexShader: |
+              #version 300 es
+              in float id;
+              uniform float size;
+              out float vId;
+              void main() {
+                vId = id;
+                float y = floor(id/size);
+                float x = id-y*size;
+                gl_Position = vec4(-1.0+(1.0+2.0*x)/size,-1.0+(1.0+2.0*y)/size,0.0,1.0);
+                gl_PointSize = 1.0;
+              }
+
+fragmentShader: |
+                #version 300 es
+                precision highp float;
+                uniform float size;
+                in float vId;
+                out vec4 outColor;
+                vec4 ColorEncode(float x)
+                {
+                  if (x == 0.0) return vec4(0,0,0,0);
+                  float exponent;
+                  float mantissa;
+                  vec4 result;
+                  float sgn;
+
+                  sgn = step(0.0,-x);
+                  x = abs(x);
+                  exponent = floor(log2(x));
+                  mantissa = x*pow(2.0,-exponent)-1.0;
+
+                  exponent = exponent+63.0;
+                  result = vec4(0,0,0,0);
+                  result.a = 255.0;
+                  result.b = exponent + 128.0*sgn;
+                  result.g = floor(mantissa*256.0);
+                  mantissa = mantissa - result.g/256.0;
+                  result.r = floor(mantissa*65536.0);
+
+                  return result/255.0;
+                }
+                void main() {
+                  outColor = ColorEncode(vId);
+                }
