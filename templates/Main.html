@@ -5,6 +5,8 @@
     <title>3DPV using WebGPU</title>
 </head>
 <body>
+    <button id="button1">1</button>
+    <button id="button2">2</button>
     <script type="importmap">
         {
             "imports": {
@@ -13,11 +15,12 @@
                         "three/addons/controls/OrbitControls.js": "/static/js/OrbitControls.js",
                         "three/addons/loaders/OBJLoader.js": "/static/js/OBJLoader.js",
                         "three/tsl": "/static/js/three.tsl.js",
-                        "GPUEngine": "/static/js/GPUEngine.js"
+                        "classes": "/static/js/Classes.js",
+                        "three/examples/jsm/utils/BufferGeometryUtils.js": "/static/js/BufferGeometryUtils.js"
             }
         }
     </script>
     <script type="module" src="/static/js/Core.js"></script>
-    <script type="module" src="/static/js/GPUEngine.js"></script>
+
 </body>
 </html>

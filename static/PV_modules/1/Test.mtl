@@ -1,0 +1,26 @@
+newmtl material_front
+Ka 0.200000 0.200000 0.200000
+Kd 1.000000 1.000000 1.000000
+Ks 1.000000 1.000000 1.000000
+Tr 1.000000
+illum 2
+Ns 10
+map_Kd /textures/Mono_6x24_Front.jpg
+
+newmtl material_rear
+Ka 0.200000 0.200000 0.200000
+Kd 1.000000 1.000000 1.000000
+Ks 1.000000 1.000000 1.000000
+Tr 1.000000
+illum 2
+Ns 10
+map_Kd /textures/Mono_6x24_Rear_Bifacial.jpg
+
+newmtl material_lateral
+Ka 0.200000 0.200000 0.200000
+Kd 1.000000 1.000000 1.000000
+Ks 1.000000 1.000000 1.000000
+Tr 1.000000
+illum 2
+Ns 10
+map_Kd /textures/Aluminium.jpg

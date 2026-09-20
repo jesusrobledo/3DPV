@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Three.js WebGPURenderer Shadow Template</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+    <!-- Import map targeting modern WebGPU-supported Three.js build -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@latest/build/three.webgpu.js",
+          "three/addons/": "https://unpkg.com/three@latest/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+      async function init() {
+        // 1. Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111827); // Dark gray background
+
+        // 2. Camera setup
+        const camera = new THREE.PerspectiveCamera(
+          60,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          100
+        );
+        camera.position.set(8, 8, 12);
+
+        // 3. WebGPURenderer configuration
+        const renderer = new THREE.WebGPURenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // --- CRITICAL SHADOW SETTING ---
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // Modern WebGPURenderer requirement
+        await renderer.init();
+
+        // Controls
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        // 4. Lighting setup
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+        dirLight.position.set(10, 15, 8);
+        dirLight.castShadow = true;
+
+        // Configure light's shadow frustum bounds
+        dirLight.shadow.camera.left = -10;
+        dirLight.shadow.camera.right = 10;
+        dirLight.shadow.camera.top = 10;
+        dirLight.shadow.camera.bottom = -10;
+        dirLight.shadow.camera.near = 5;
+        dirLight.shadow.camera.far = 30;
+        dirLight.shadow.mapSize.set(4096,4096);
+
+        scene.add(dirLight);
+        const shadowHelper = new THREE.CameraHelper(dirLight.shadow.camera);
+        scene.add(shadowHelper);
+
+        // 5. Shadow Receiver (Floor)
+        const floorGeo = new THREE.PlaneGeometry(30, 30);
+        const floorMat = new THREE.MeshStandardMaterial({
+          color: 0x374151,
+          roughness: 0.8,
+        });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true; // RECEIVER FLAG
+        scene.add(floor);
+
+        // 6. Shadow Caster (Instanced Mesh)
+        const count = 25;
+        const cubeGeo = new THREE.BoxGeometry(1, 1, 1);
+        const cubeMat = new THREE.MeshStandardMaterial({
+          color: 0x3b82f6,
+          roughness: 0.3,
+          metalness: 0.2,
+        });
+
+        const instancedMesh = new THREE.InstancedMesh(cubeGeo, cubeMat, count);
+        instancedMesh.castShadow = true;    // CASTER FLAG
+        instancedMesh.receiveShadow = true; // RECEIVER FLAG
+
+        const dummy = new THREE.Object3D();
+        let index = 0;
+        const gridOffset = 2;
+
+        for (let x = 0; x < 5; x++) {
+          for (let z = 0; z < 5; z++) {
+            dummy.position.set(
+              (x - 2) * gridOffset,
+              1 + Math.sin(x + z) * 0.5,
+              (z - 2) * gridOffset
+            );
+            dummy.updateMatrix();
+            instancedMesh.setMatrixAt(index++, dummy.matrix);
+          }
+        }
+
+        // Recompute global bounding sphere for accurate culling
+        instancedMesh.computeBoundingSphere();
+        scene.add(instancedMesh);
+
+        // 7. Handle window resize
+        window.addEventListener('resize', () => {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // 8. Render Loop
+        renderer.setAnimationLoop(() => {
+          controls.update();
+          renderer.render(scene, camera);
+        });
+      }
+
+      init();
+    </script>
+  </body>
+</html>
