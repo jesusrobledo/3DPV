@@ -67,8 +67,8 @@ const computeTexturesPass = Fn(() => {
     const r = pixelX.div(texWidth);
     const g = pixelY.div(texHeight);
     const b = textureId.div(uniqueTexturesCount); // Cambia según la textura
-    //const finalColor = vec4(r, g, b, 1.0);
-    const finalColor = vec4(0.0, 0.0, 1.0, 1.0);
+    const finalColor = vec4(r, g, b, 1.0);
+    //const finalColor = vec4(0.0, 0.0, 1.0, 1.0);
 
     // Guardamos el color en la posición global correspondiente de la memoria de la GPU
     textureStorageNode.element(globalPixelIndex).assign(finalColor);
@@ -115,8 +115,8 @@ material.colorNode = Fn(() => {
     // 4. Leer el vec4 de color directamente del StorageBuffer
     const texelColor = textureStorageNode.element(globalPixelAddress);
 
-    return texelColor;
-    //return vec4(1.0,0.0,0.0,1.0);
+    //return texelColor;
+    return vec4(1.0,0.0,0.0,1.0);
 })();
 
 scene = new THREE.Scene();
