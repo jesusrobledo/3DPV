@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
 import {positionView,positionWorld} from 'three/tsl';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { uv, Fn } from 'three/tsl';
+import { uv, vec3, texture3D, storage, Fn, instanceIndex, uniform, array, Loop, instancedArray } from 'three/tsl';
+//import * as JSZip from 'jszip';
+import JSZip from 'https://esm.sh/jszip@3.10.1';
 
 class Sun{
     constructor(){
@@ -77,6 +79,229 @@ class Terrain extends THREE.Group{
     }
 }
 
+
+class GPUengine{
+    static DEFAULTS = Object.freeze({
+        nT: 32,
+        nG: 64,
+        nI: 2048,
+        Tmin: -10,
+        Tmax: 80,
+        Gmin: 0,
+        Gmax: 1200,
+        Imin: 0,
+        Imax: 10
+    });
+    constructor(options = {}){
+
+        // LUT upload
+        Object.assign(this,GPUengine.DEFAULTS,options);
+        this.loadLUT(options.fileName);
+
+        // Other elements
+        this.nCells = null;
+        this.cellAttr = {};
+        this.cellStorage = {};
+        ///////////////////////////////////////////////////////////////////////
+        // Test for the uniform values on the current
+        const current = new Float32Array(100);
+        for (let i=0;i<100;i++){
+            current[i] = 0.1*i;
+        }
+        this.current = instancedArray( current, 'float' );
+        ///////////////////////////////////////////////////////////////////////
+
+        // Shaders definition
+        this.uniformIrradiance = uniform(900.0);
+        this.uniformTemperature = uniform(25.0);
+        this.normalizeValue = Fn (([x,min,max]) => {
+            return x.sub(min).div(max.sub(min));
+        });
+        this.cellsIrradiance = Fn(() => {
+            this.cellStorage.irradiance.element(instanceIndex).assign(this.uniformIrradiance);
+        });
+        this.cellsTemperature = Fn(() => {
+            this.cellStorage.temperature.element(instanceIndex).assign(this.uniformTemperature);
+        });
+        this.cellsVoltage = Fn(() => {
+            // Normalizing
+            const irradiance = this.normalizeValue(this.cellStorage.irradiance.element(instanceIndex),this.Gmin,this.Gmax);
+            const temperature = this.normalizeValue(this.cellStorage.temperature.element(instanceIndex),this.Tmin,this.Tmax);
+            Loop({start:0,end:100},({i:loopIndex}) => {
+                const current = this.normalizeValue(this.current.element(loopIndex),this.Imin,this.Imax);
+                const data = vec3(temperature,irradiance,current);
+                const value = texture3D(this.LUT,data).r;
+                const globalIndex = instanceIndex.mul(100).add(loopIndex);
+;               this.cellStorage.voltageArray.element(globalIndex).assign(value);
+            });
+
+        });
+    }
+
+    async loadLUT(fileName){
+        const response = await fetch(fileName);
+        const blob = await response.blob();
+        const zip = await JSZip.loadAsync(blob);
+        const binBuffer = await zip.file('lut_data.bin').async('arraybuffer');
+        const floatData = new Float32Array(binBuffer);
+        this.LUT = new THREE.Data3DTexture(floatData,this.nT,this.nG,this.nI);
+        this.LUT.format = THREE.RedFormat;
+        this.LUT.type = THREE.FloatType;
+        this.LUT.minFilter = THREE.LinearFilter;
+        this.LUT.magFilter = THREE.LinearFilter;
+        this.LUT.wrapS = THREE.ClampToEdgeWrapping;
+        this.LUT.wrapT = THREE.ClampToEdgeWrapping;
+        this.LUT.wrapR = THREE.ClampToEdgeWrapping;
+        this.LUT.needsUpdate = true;
+        alert ("LUT loaded");
+    }
+    async test(shader,renderer,LUT){
+        switch (shader){
+            case "temperature":
+                await renderer.computeAsync(this.cellsTemperature().compute(this.nCells));
+                break;
+            case "irradiance":
+                await renderer.computeAsync(this.cellsIrradiance().compute(this.nCells));
+                break;
+            case "voltage":
+                await renderer.computeAsync(this.cellsVoltage().compute(this.nCells));
+                const data = await renderer.getArrayBufferAsync(this.cellAttr.voltageArray);
+                return new Float32Array(data);
+                break;
+        }
+    }
+    addArray(nCells){
+        this.nCells = nCells;
+        this.cellAttr = {};
+        this.cellStorage = {};
+        const attributes = ['irradiance','temperature'];
+        for (let key of attributes){
+            this.cellAttr[key] = new THREE.StorageBufferAttribute(new Float32Array(this.nCells),1);
+            this.cellStorage[key] = storage(this.cellAttr[key],'float',this.nCells);
+        }
+        this.cellAttr['voltageArray'] = new THREE.StorageBufferAttribute(new Float32Array(this.nCells*100),1);
+        this.cellStorage['voltageArray'] = storage(this.cellAttr['voltageArray'],'float',this.nCells*100);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+class PVcell{
+    static DEFAULTS = Object.freeze({
+        nT: 32,
+        nG: 64,
+        nI: 2048,
+        Tmin: -10,
+        Tmax: 80,
+        Gmin: 0,
+        Gmax: 1200,
+        Imin: 0,
+        Imax: 10
+    });
+    constructor(options = {}){
+        Object.assign(this,PVcell.DEFAULTS,options);
+        this.loadLUT(options.fileName);
+    }
+    async loadLUT(fileName){
+        const response = await fetch(fileName);
+        const blob = await response.blob();
+        const zip = await JSZip.loadAsync(blob);
+        const binBuffer = await zip.file('lut_data.bin').async('arraybuffer');
+        const floatData = new Float32Array(binBuffer);
+        this.LUT = new THREE.Data3DTexture(floatData,this.nT,this.nG,this.nI);
+        this.LUT.format = THREE.RedFormat;
+        this.LUT.type = THREE.FloatType;
+        this.LUT.minFilter = THREE.LinearFilter;
+        this.LUT.magFilter = THREE.LinearFilter;
+        this.LUT.wrapS = THREE.ClampToEdgeWrapping;
+        this.LUT.wrapT = THREE.ClampToEdgeWrapping;
+        this.LUT.wrapR = THREE.ClampToEdgeWrapping;
+        this.LUT.needsUpdate = true;
+        alert ("LUT loaded");
+    }
+}
+class PVarray{
+    constructor(){
+
+    }
+}
+class _PVcell{
+    constructor(nT,nG,nI,fileName){
+        this.nT = nT;
+        this.nG = nG;
+        this.nI = nI;
+        this.Tmin = -10;
+        this.Tmax = 80;
+        this.Gmin = 0;
+        this.Gmax = 1200;
+        this.Imin = 0;
+        this.Imax = 10;
+        this.LUT = null;
+        this.loadLUT(fileName);
+        /*
+        this.sampleLUT = (posCoords) => {
+            const size = vec3(this.nT,this.nG,this.nI);
+            const normalizedUV = posCoords.div(size);
+            return texture3D(this.LUT,normalizedUV).r;
+        }
+        */
+        this.n = 10;
+        const inputData = new Float32Array(3*this.n);
+        const outputData = new Float32Array(this.n);
+        this.attrData = new THREE.StorageBufferAttribute(outputData,1);
+        this.inputData = storage(
+            new THREE.StorageBufferAttribute(inputData,3),
+            'vec3',
+            this.n
+        );
+        this.outputData = storage(
+            this.attrData,
+            'float',
+            this.n
+        );
+        this.sampleLUT = Fn(() => {
+            const posCoords = this.inputData.element(instanceIndex);
+            const value = texture3D(this.LUT,posCoords).r;
+            this.outputData.element(instanceIndex).assign(value);
+        });
+    }
+    async test(data,renderer){
+        this.inputData = storage(
+            new THREE.StorageBufferAttribute(data,3),
+            'vec3',
+            this.n
+        );
+        await renderer.computeAsync(this.sampleLUT().compute(10));
+        const check = await renderer.getArrayBufferAsync(this.attrData);
+        const result = new Float32Array(check);
+        return result;
+    }
+    async loadLUT(fileName){
+        const response = await fetch(fileName);
+        const blob = await response.blob();
+        const zip = await JSZip.loadAsync(blob);
+        const binBuffer = await zip.file('lut_data.bin').async('arraybuffer');
+        const floatData = new Float32Array(binBuffer);
+        this.LUT = new THREE.Data3DTexture(floatData,this.nT,this.nG,this.nI);
+        this.LUT.format = THREE.RedFormat;
+        this.LUT.type = THREE.FloatType;
+        this.LUT.minFilter = THREE.LinearFilter;
+        this.LUT.magFilter = THREE.LinearFilter;
+        this.LUT.wrapS = THREE.ClampToEdgeWrapping;
+        this.LUT.wrapT = THREE.ClampToEdgeWrapping;
+        this.LUT.wrapR = THREE.ClampToEdgeWrapping;
+        this.LUT.needsUpdate = true;
+        alert ("Data loaded");
+    }
+    /*
+    voltage (T,G,I){
+        const data = vec3((T-this.Tmin)/(this.Tmax-this.Tmin)*this.nT,
+                          (G-this.Gmin)/(this.Gmax-this.Gmin)*this.nG,
+                          (I-this.Imin)/(this.Imax-this.Imin)*this.nI);
+        const test = this.sampleLUT(data);
+        return test;
+    }
+    */
+}
 class PVmodule extends THREE.Group{
     constructor(){
         super();
@@ -201,5 +426,6 @@ class PVplant extends THREE.Object3D{
         this.add(instancedMesh);
     }
 }
+///////////////////////////////////////////////////////////////////////////////
 
-export {Terrain, Sun, PVmodule, PVstring, PVplant}
+export {Terrain, Sun, PVcell, PVmodule, PVstring, PVplant, PVarray, GPUengine}

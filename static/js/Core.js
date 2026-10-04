@@ -3,8 +3,8 @@
 import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {Terrain, Sun, PVmodule, PVstring, PVplant } from 'classes';
-import { uv, Fn, int, uniformArray, vec4, attribute, instanceIndex} from 'three/tsl';
+import {Terrain, Sun, PVcell, PVmodule, PVstring, PVplant, PVarray, GPUengine } from 'classes';
+import { uv, Fn, int, uniformArray, vec4, attribute, instanceIndex, compute, storage, texture3D, vec3} from 'three/tsl';
 
 // Renderer initialization ////////////////////////////////////////////////////
 // TO DO - Responsive window
@@ -32,14 +32,21 @@ scene.background = new THREE.Color(0x87CEEB);
 const sun = new Sun();
 const terrain = new Terrain('/static/Terrain_5km_UV.obj','/static/textures/Terrain.jpg');
 const shadowHelper = new THREE.CameraHelper(sun.light.shadow.camera);
+
 scene.add(sun.light);
 scene.add(shadowHelper);
 sceneIndices['sunFOV'] = scene.children[scene.children.length-1].id;
+
 scene.add(terrain);
 sceneIndices['terrain'] = scene.children[scene.children.length-1].id;
+
 scene.add(new THREE.AxesHelper(2000));
 sceneIndices['localAxis'] = scene.children[scene.children.length-1].id;
 
+//let pvCell = new PVcell({nT:16,nG:32,nI:512,fileName:'static/Test.zip'});
+let gpuEngine = new GPUengine({nT:32,nG:64,nI:2048,fileName:'static/Test.zip'});
+//let pvArray = new PVarray(1000);
+/*
 let pvModule = new PVmodule();
 pvModule.loadMesh('/static/PV_modules/1/Test.obj');
 pvModule.position.set(0.0,0.0,250.0);
@@ -62,6 +69,7 @@ material.colorNode = colorNode();
 //pvModule.loadMesh('/static/PV_modules/2/Standard_Mono144.obj');
 let pvString;
 let pvPlant;
+*/
 
 // Interface control
 const keysPressed = {};
@@ -136,6 +144,14 @@ const button1 = document.getElementById('button1');
 const button2 = document.getElementById('button2');
 const button3 = document.getElementById('button3');
 button0.addEventListener('click', async ()=>{
+    gpuEngine.addArray(10);
+    await gpuEngine.test('irradiance',renderer);
+    await gpuEngine.test('temperature',renderer);
+    gpuEngine.test('voltage',renderer).then(result => {
+        var x=Array.from(result);
+        var x = 0;
+    });
+    /*
     const response = await fetch('/load_case',{
         method: 'POST',
         headers: {'Content-Type':'application/json'},
@@ -145,8 +161,10 @@ button0.addEventListener('click', async ()=>{
         throw new Error('Server error: ${response.status}');
     const result = await response.json();
     const x = 0;
+    */
 });
 button1.addEventListener('click', ()=>{
+    /*
     //scene.add(terrain);
     pvString = new PVstring(pvModule);
     //scene.add(pvString);
@@ -155,15 +173,85 @@ button1.addEventListener('click', ()=>{
     scene.add(pvPlant);
     //sceneIndices['pvPlant'] = scene.children[scene.children.length-1].children[0].id;
     sceneIndices['test'] = scene.children[scene.children.length-1].children[0].id;
+    */
 });
 button2.addEventListener('click', ()=>{
-
+    /*
     material.needsUpdate = true;
     pvPlant.children[0].material = [material,material2[1],material2[2]];
+    */
 });
 button3.addEventListener('click', ()=>{
+    /*
     pvPlant.children[0].material = material2;
+    */
 });
+button4.addEventListener('click', ()=>{
+    /*
+    //test();
+    const data = new Float32Array([0.3889,0.9000,0.1,
+                                   0.3889,0.9000,0.2,
+                                   0.3889,0.9000,0.3,
+                                   0.3889,0.9000,0.4,
+                                   0.3889,0.9000,0.5,
+                                   0.3889,0.9000,0.6,
+                                   0.3889,0.9000,0.7,
+                                   0.3889,0.9000,0.8,
+                                   0.3889,0.9000,0.9,
+                                   0.3889,0.9000,1.0]);
+    cell.test(data,renderer).then(result => {
+        const x = result;
+    });
+    */
+});
+async function test(){
+    /*
+    const data = new Float32Array([0.3889,0.9000,0.1,
+                                   0.3889,0.9000,0.2,
+                                   0.3889,0.9000,0.3,
+                                   0.3889,0.9000,0.4,
+                                   0.3889,0.9000,0.5,
+                                   0.3889,0.9000,0.6,
+                                   0.3889,0.9000,0.7,
+                                   0.3889,0.9000,0.8,
+                                   0.3889,0.9000,0.9,
+                                   0.3889,0.9000,1.0]);
+    cell.inputData = storage(
+        new THREE.StorageBufferAttribute(data,3),
+        'vec3',
+        cell.n
+    );
+    const bufferEntrada = storage(
+        new THREE.StorageBufferAttribute(data, 3),
+        'vec3',
+        10
+    );
+
+    const arraySalida = new Float32Array(10);
+    const attrSalida = new THREE.StorageBufferAttribute(arraySalida, 1);
+    const bufferSalida = storage(
+        attrSalida,
+        'float',
+        10
+    );
+    const computeKernel = Fn(() => {
+        const posCoords = bufferEntrada.element(instanceIndex);
+        //const posCoords = vec3(0.3889,0.5000,0.2);
+        const valorV = texture3D(cell.LUT, posCoords).r;
+        bufferSalida.element(instanceIndex).assign(valorV);
+      })
+    const computeNode = computeKernel().compute(10)
+    await renderer.computeAsync(computeNode);
+    //const computeNode = cell.sampleLUT(data).compute(10);
+    //await renderer.computeAsync(computeNode);
+    //await renderer.computeAsync(cell.sampleLUT(data).compute(10));
+    //const test = await renderer.getArrayBufferAsync(attrSalida);
+    //const test = await renderer.getArrayBufferAsync(cell.attrData);
+    //const result = new Float32Array(test);
+    await cell.test(data,renderer);
+    var x = 0;
+    */
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // To be checked later
