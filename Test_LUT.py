@@ -108,11 +108,11 @@ cell.get_data_from_PAN_file(os.path.join(current_path, 'static', 'ET_M772BH550GL
 
 Tmin = -10
 Tmax = 80
-nT = 32
+nT = 16
 Gmin = 0
 Gmax = 1200
-nG = 64
-nI = 2048
+nG = 32
+nI = 512
 T = np.linspace(float(Tmin), float(Tmax), int(nT))
 G = np.linspace(float(Gmin), float(Gmax), int(nG))
 I = np.linspace(0, 1.10 * cell.i_ph, int(nI))
