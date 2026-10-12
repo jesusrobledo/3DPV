@@ -1,7 +1,23 @@
 import * as THREE from 'three';
 import {OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { storage, instanceIndex, Fn, Loop, instancedArray, vec3, texture3D, Var, int, vec2, If, Break, float } from 'three/tsl';
+import { storage,
+         instanceIndex,
+         Fn,
+         Loop,
+         instancedArray,
+         vec3,
+         texture3D,
+         Var,
+         int,
+         vec2,
+         If,
+         Break,
+         float,
+         uniformArray,
+         attribute,
+         vec4,
+         exp} from 'three/tsl';
 import JSZip from 'https://esm.sh/jszip@3.10.1';
 
 class Sun{
@@ -125,6 +141,17 @@ class GPUengine{
             const factor = targetVal.sub(valHigh).div(valLow.sub(valHigh));
             return vec2(high,factor);
         });
+        this.diodeCurrent = Fn (([Vd]) =>{
+            const Is = float(1e-12);
+            const n = float(1.0);
+            const T = float(298);
+            const k = float(1.380649e-23);
+            const q = float(1.60218e-19);
+            const Vt = k.mul(T).div(q);
+            const exponent = Vd.div(n.mul(Vt));
+            const Id = Is.mul(exp(exponent).sub(1.0));
+            return float(Id);
+        });
 
         // Cells operation
         this.cellsVoltage = Fn(([key]) => {
@@ -153,8 +180,8 @@ class GPUengine{
             Loop({start:0,end:this.array[key].IVsize},({i:i1}) =>{
                 const _i1 = i1.toVar();
                 const value = Var(0.0);
-                Loop({start:0,end:this.array[key].nCellsPerDiode},({i:i2}) => {
-                    const cellIndex = instanceIndex.mul(this.array[key].nCellsPerDiode*this.array[key].IVsize).
+                Loop({start:0,end:this.array[key].nCellsPerChain},({i:i2}) => {
+                    const cellIndex = instanceIndex.mul(this.array[key].nCellsPerChain*this.array[key].IVsize).
                                       add(i2.mul(this.array[key].IVsize)).
                                       add(_i1);
                     value.addAssign(this.array[key].cell.node.voltage.element(cellIndex));
@@ -166,14 +193,43 @@ class GPUengine{
         this.chainsCurrent = Fn(([key]) => {
             Loop({start:0,end:this.array[key].IVsize},({i}) => {
                 const dummy = Var(this.array[key].IVsize).sub(1);
-                const voltage = Var(-1.0).add(float(i).mul(15.0).div(dummy));
+                const voltage = Var(-1.0).add(float(i).mul(18.0).div(dummy));
                 const data = this.binarySearchDecrease(instanceIndex,voltage,this.array[key].chain.node.voltage,this.array[key].IVsize);
                 const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i);
                 const value = (data.x).sub(data.y).mul(0.10101);
                 this.array[key].chain.node.current.element(globalIndex).assign(value);
             });
         });
+
+        // Blocks operation
+        this.blocksCurrent = Fn(([key]) => {
+            Loop({start:0,end:this.array[key].IVsize},({i:i1}) =>{
+                const _i1 = i1.toVar();
+                const value = Var(0.0);
+                Loop({start:0,end:this.array[key].nChainsPerDiode},({i:i2}) => {
+                    const chainIndex = instanceIndex.mul(this.array[key].nChainsPerDiode*this.array[key].IVsize).
+                                      add(i2.mul(this.array[key].IVsize)).
+                                      add(_i1);
+                    value.addAssign(this.array[key].chain.node.current.element(chainIndex));
+                });
+                value.addAssign(this.diodeCurrent(this.array[key].voltageVector.element(i1).mul(-1)));
+                //value.assign(this.diodeCurrent(this.array[key].voltageVector.element(i1)));
+                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i1);
+                this.array[key].block.node.current.element(globalIndex).assign(value);
+            });
+        });
+        this.blocksVoltage = Fn(([key]) => {
+            Loop({start:0,end:this.array[key].IVsize},({i}) => {
+                const dummy = Var(this.array[key].IVsize).sub(1);
+                const current = float(i).mul(20.0).div(dummy);
+                const data = this.binarySearchDecrease(instanceIndex,current,this.array[key].block.node.current,this.array[key].IVsize);
+                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i);
+                //const value = (data.x).sub(data.y).mul(0.10101);
+                //this.array[key].chain.node.current.element(globalIndex).assign(value);
+            });
+        });
     }
+
     async loadLUT(fileName,key){
         const response = await fetch(fileName);
         const blob = await response.blob();
@@ -207,7 +263,7 @@ class GPUengine{
 
         const voltageVector = new Float32Array(IVsize);
         for (let i=0;i<voltageVector.length;i++)
-            voltageVector[i] = -1.0 + 15/(IVsize-1)*i;
+            voltageVector[i] = -1.0 + 18/(IVsize-1)*i;
         this.array[key]['voltageVector'] = instancedArray(voltageVector,'float');
 
         // Individual cells
@@ -215,8 +271,8 @@ class GPUengine{
                                'temperature':{size:1},
                                'voltage':{size:IVsize}
                                };
-        this.array[key]['nCellsPerDiode'] = data.module.nCellsPerDiode;
-        this.array[key]['nCells'] = data.module.nCellsPerDiode * data.module.nDiodes * data.nModules;
+        this.array[key]['nCellsPerChain'] = data.module.nCellsPerChain;
+        this.array[key]['nCells'] = data.module.nCellsPerChain * data.module.nChainsPerDiode * data.module.nDiodes * data.nModules;
         this.array[key]['cell'] = {attribute:{},node:{}};
         for (let keyAttr in cellAttribute){
             this.array[key].cell.attribute[keyAttr] = new THREE.StorageBufferAttribute(new Float32Array(this.array[key].nCells*cellAttribute[keyAttr].size),1);
@@ -226,11 +282,22 @@ class GPUengine{
         // Individual chains
         const chainAttribute = {'voltage':{size:IVsize},
                                 'current':{size:IVsize}};
+        this.array[key]['nChainsPerDiode'] = data.module.nChainsPerDiode;
         this.array[key]['nChains'] = data.module.nChainsPerDiode * data.module.nDiodes * data.nModules;
         this.array[key]['chain'] = {attribute:{},node:{}};
         for (let keyAttr in chainAttribute){
             this.array[key].chain.attribute[keyAttr] = new THREE.StorageBufferAttribute(new Float32Array(this.array[key].nChains*chainAttribute[keyAttr].size),1);
             this.array[key].chain.node[keyAttr] = storage(this.array[key].chain.attribute[keyAttr],'float',this.array[key].nChains*chainAttribute[keyAttr].size);
+        }
+
+        // Individual blocks
+        const blockAttribute = {'voltage':{size:IVsize},
+                                'current':{size:IVsize}};
+        this.array[key]['nBlocks'] = data.module.nDiodes * data.nModules;
+        this.array[key]['block'] = {attribute:{},node:{}};
+        for (let keyAttr in blockAttribute){
+            this.array[key].block.attribute[keyAttr] = new THREE.StorageBufferAttribute(new Float32Array(this.array[key].nBlocks*blockAttribute[keyAttr].size),1);
+            this.array[key].block.node[keyAttr] = storage(this.array[key].block.attribute[keyAttr],'float',this.array[key].nBlocks*blockAttribute[keyAttr].size);
         }
 
         // Upload the Lookup table used for that array
@@ -265,10 +332,14 @@ class GPUengine{
                 break;
             case 'chainsCurrent':
                 await renderer.computeAsync(this.chainsCurrent(key).compute(this.array[key].nChains));
-                const data = await renderer.getArrayBufferAsync(this.array[key].chain.attribute.current);
+                //const data = await renderer.getArrayBufferAsync(this.array[key].chain.attribute.current);
+                //return new Float32Array(data);
+                break;
+            case 'blocksCurrent':
+                await renderer.computeAsync(this.blocksCurrent(key).compute(this.array[key].nBlocks));
+                const data = await renderer.getArrayBufferAsync(this.array[key].block.attribute.current);
                 return new Float32Array(data);
                 break;
-
         }
     }
 }
@@ -303,6 +374,7 @@ class PVlayout extends THREE.Group{
         const geometriesToMerge = [];
         const d = 1.15;
         const groups = [];
+        this.nModules = data.nModules;
         for (let i=0;i<data.nModules;i++){
             // TODO: Adapt with proper allocation of the modules in the space
             const position = new THREE.Vector3(-d*(data.nModules-1)/2+d*i,0.0,0.0);
@@ -346,6 +418,7 @@ class PVarray extends THREE.Object3D{
         const nY = data.nY;
         const dX = data.dX;
         const dY = data.dY;
+        this.pvLayout = data.pvLayout;
         const instancedMesh = new THREE.InstancedMesh(data.pvLayout.children[0].geometry,
                                                       data.pvLayout.children[0].material,
                                                       nX*nY);
@@ -366,6 +439,47 @@ class PVarray extends THREE.Object3D{
         instancedMesh.castShadow = true;
         instancedMesh.receiveShadow = true;
         this.add(instancedMesh);
+
+        this.analysisMaterial = new THREE.MeshBasicNodeMaterial();
+        this.cellPosition = uniformArray([36, 37, 84, 85, 132, 133,
+                                          35, 38, 83, 86, 131, 134,
+                                          34, 39, 82, 87, 130, 135,
+                                          33, 40, 81, 88, 129, 136,
+                                          32, 41, 80, 89, 128, 137,
+                                          31, 42, 79, 90, 127, 138,
+                                          30, 43, 78, 91, 126, 139,
+                                          29, 44, 77, 92, 125, 140,
+                                          28, 45, 76, 93, 124, 141,
+                                          27, 46, 75, 94, 123, 142,
+                                          26, 47, 74, 95, 122, 143,
+                                          25, 48, 73, 96, 121, 144,
+                                          1, 24, 49, 72, 97, 120,
+                                          2, 23, 50, 71, 98, 119,
+                                          3, 22, 51, 70, 99, 118,
+                                          4, 21, 52, 69, 100, 117,
+                                          5, 20, 53, 68, 101, 116,
+                                          6, 19, 54, 67, 102, 115,
+                                          7, 18, 55, 66, 103, 114,
+                                          8, 17, 56, 65, 104, 113,
+                                          9, 16, 57, 64, 105, 112,
+                                          10, 15, 58, 63, 106, 111,
+                                          11, 14, 59, 62, 107, 110,
+                                          12, 13, 60, 61, 108, 109
+                                          ]);
+        this.colorNode = Fn(() => {
+            const analysisUv = attribute('analysisUv', 'vec2');
+            const iModule = analysisUv.x.div(6).floor();
+            const x = analysisUv.x.floor().sub(iModule.mul(6));
+            const y = analysisUv.y.floor();
+            const value = this.cellPosition.element(y.mul(6).add(x));
+            //const x = analysisUv.x.floor().div(6*this.pvLayout.nModules);
+            //const index = instanceIndex.mul(24);
+            //const y = analysisUv.y.add(index).floor().div(72);
+            //return vec4(y,x,0.0,1.0);
+            //return (x.div(6),y.div(24),0.0,1.0);
+            return (1.0,1.0,0.0,1.0);
+        });
+        this.analysisMaterial.colorNode = this.colorNode();
     }
 }
 

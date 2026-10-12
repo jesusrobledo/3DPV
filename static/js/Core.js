@@ -4,7 +4,6 @@ import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {Terrain, Sun, GPUengine, PVmodule, PVlayout, PVarray} from 'classes';
-import { Fn, attribute, vec4, instanceIndex } from 'three/tsl';
 
 
 // Renderer initialization ////////////////////////////////////////////////////
@@ -61,17 +60,6 @@ let pvModule = null;
 let pvLayout = null;
 let pvArray = null;
 let baselineMaterial = null;
-
-// TODO: Probably transfer this to the GPU engine
-const analysisMaterial = new THREE.MeshBasicNodeMaterial();
-const colorNode = Fn(() => {
-    const analysisUv = attribute('analysisUv', 'vec2');
-    const x = analysisUv.x.floor().div(30);
-    const index = instanceIndex.mul(24);
-    const y = analysisUv.y.add(index).floor().div(72);
-    return vec4(y,x,0.0,1.0);
-});
-analysisMaterial.colorNode = colorNode();
 
 // Interface control //////////////////////////////////////////////////////////
 const keysPressed = {};
@@ -152,20 +140,20 @@ menu_close.addEventListener('click', () => {
 });
 button0.addEventListener('click', () => {
 
-    const module = {nCellsPerDiode:20,nChainsPerDiode:1,nDiodes:3,fileName:'static/Test_2048.zip'};
-    const nModules = 2500;
-    const irradiance = new Float32Array(module.nCellsPerDiode*module.nDiodes*nModules);
-    const temperature = new Float32Array(module.nCellsPerDiode*module.nDiodes*nModules);
+    const module = {nCellsPerChain:24,nChainsPerDiode:2,nDiodes:3,fileName:'static/Test_2048.zip'};
+    const nModules = 10;
+    const irradiance = new Float32Array(module.nCellsPerChain*module.nChainsPerDiode*module.nDiodes*nModules);
+    const temperature = new Float32Array(module.nCellsPerChain*module.nChainsPerDiode*module.nDiodes*nModules);
     for (let i=0;i<irradiance.length;i++){
         irradiance[i] = 1000;
         temperature[i] = 25;
     }
-    irradiance[20] = 800;
-    irradiance[40] = 750;
-    irradiance[41] = 750;
-    irradiance[60] = 600;
-    irradiance[80] = 500;
-    irradiance[100] = 400;
+    irradiance[24] = 800;
+    irradiance[48] = 750;
+    irradiance[72] = 750;
+    irradiance[96] = 600;
+    irradiance[120] = 500;
+    irradiance[144] = 400;
 
     gpuEngine.createArray({key:'baseline',
                            module:module,
@@ -200,17 +188,20 @@ button1.addEventListener('click', () => {
 button2.addEventListener('click', () => {
     gpuEngine.computeShader(renderer,'cellsVoltage','baseline');
     gpuEngine.computeShader(renderer,'chainsVoltage','baseline');
-    gpuEngine.computeShader(renderer,'chainsCurrent','baseline').then(result =>{
+    gpuEngine.computeShader(renderer,'chainsCurrent','baseline');
+    gpuEngine.computeShader(renderer,'blocksCurrent','baseline').then(result =>{
         const graph_data = [];
         //for (let iChain=0;iChain<gpuEngine.array.baseline.nChains;iChain++){
-        for (let iChain=0;iChain<6;iChain++){
+        //for (let iChain=0;iChain<6;iChain++){
+        for (let iBlock=0;iBlock<6;iBlock++){
             const x = [];
             const y = [];
             for (let i=0;i<gpuEngine.array.baseline.IVsize;i++){
                 //x.push(result[iChain*gpuEngine.array.baseline.IVsize+i]);
                 //y.push(10.0/(gpuEngine.array.baseline.IVsize-1)*i);
-                x.push(-1.0 + 15/(gpuEngine.array.baseline.IVsize-1)*i);
-                y.push(result[iChain*gpuEngine.array.baseline.IVsize+i]);
+                x.push(-1.0 + 18/(gpuEngine.array.baseline.IVsize-1)*i);
+                //y.push(result[iChain*gpuEngine.array.baseline.IVsize+i]);
+                y.push(result[iBlock*gpuEngine.array.baseline.IVsize+i]);
             }
             graph_data.push({x:x,y:y,mode:'lines'});
         }
@@ -220,7 +211,7 @@ button2.addEventListener('click', () => {
 });
 button3.addEventListener('click', () => {
 
-    pvArray.children[0].material = [analysisMaterial,baselineMaterial[1],baselineMaterial[2]];
+    pvArray.children[0].material = [pvArray.analysisMaterial,baselineMaterial[1],baselineMaterial[2]];
 });
 button4.addEventListener('click', () => {
 
