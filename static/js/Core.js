@@ -5,6 +5,21 @@ import { WebGPURenderer } from 'three/webgpu';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {Terrain, Sun, GPUengine, PVmodule, PVlayout, PVarray} from 'classes';
 
+// Methods ////////////////////////////////////////////////////////////////////
+async function loadCase(){
+    try{
+        const response = await fetch('/load_case',{method: 'POST',
+                                                   headers: {'Content-Type':'application/json'},
+                                                   body: JSON.stringify({name:"5Km"})
+                                                  });
+        if (!response.ok)
+            throw new Error('Server error: ${response.status}');
+        const result = await response.json();
+        return result;
+    } catch(error){
+        console.error(error);
+    }
+}
 
 // Renderer initialization ////////////////////////////////////////////////////
 // TODO - Responsive window
@@ -29,15 +44,11 @@ scene.background = new THREE.Color(0x87CEEB);
 // Basic scene ////////////////////////////////////////////////////////////////
 // TODO - Adapt scene filed of view and shadow field of view
 const sun = new Sun();
-const terrain = new Terrain('/static/Terrain_5km_UV.obj','/static/textures/Terrain.jpg');
 const shadowHelper = new THREE.CameraHelper(sun.light.shadow.camera);
 
 scene.add(sun.light);
 scene.add(shadowHelper);
 sceneIndices['sunFOV'] = scene.children[scene.children.length-1].id;
-
-scene.add(terrain);
-sceneIndices['terrain'] = scene.children[scene.children.length-1].id;
 
 scene.add(new THREE.AxesHelper(2000));
 sceneIndices['localAxis'] = scene.children[scene.children.length-1].id;
@@ -56,9 +67,12 @@ const graph_layout = {margin:{l:40,r:20,b:30,t:60,pad:0},
 
 // GPU engine definition and specific 3D elements /////////////////////////////
 const gpuEngine = new GPUengine();
+
+let terrain = null;
 let pvModule = null;
 let pvLayout = null;
 let pvArray = null;
+
 let baselineMaterial = null;
 
 // Interface control //////////////////////////////////////////////////////////
@@ -132,6 +146,7 @@ const button1 = document.getElementById('button1');
 const button2 = document.getElementById('button2');
 const button3 = document.getElementById('button3');
 const button4 = document.getElementById('button4');
+const button5 = document.getElementById('button5');
 const menu = document.getElementById('menu');
 const menu_close = document.getElementById('menu_close');
 menu_close.addEventListener('click', () => {
@@ -139,6 +154,30 @@ menu_close.addEventListener('click', () => {
     menu.close();
 });
 button0.addEventListener('click', () => {
+
+    loadCase().then((result) =>{
+        terrain = new Terrain(result.objFile,result.textureFile);
+        scene.add(terrain);
+        sceneIndices['terrain'] = scene.children[scene.children.length-1].id;
+        pvModule = new PVmodule();
+        pvModule.loadMesh({fileName:result.arrays.A1.layouts.L1.pvModule.fileName,
+                           frontTexture:result.arrays.A1.layouts.L1.pvModule.frontTexture,
+                           rearTexture:result.arrays.A1.layouts.L1.pvModule.rearTexture,
+                           lateralTexture:result.arrays.A1.layouts.L1.pvModule.lateralTexture}).then(() => {
+            pvLayout = new PVlayout({pvModule:pvModule,
+                                     position:result.arrays.A1.layouts.L1.position,
+                                     rotation:result.arrays.A1.layouts.L1.rotation}
+                                     );
+            pvArray = new PVarray({pvLayout:pvLayout,
+                                   position:result.arrays.A1.position,
+                                   rotation:result.arrays.A1.rotation});
+            pvArray.position.set(0.0,0.0,250.0);
+            scene.add(pvArray);
+            sceneIndices['pvArray'] = scene.children[scene.children.length-1].id;
+        });
+    });
+});
+button1.addEventListener('click', () => {
 
     const module = {nCellsPerChain:24,nChainsPerDiode:2,nDiodes:3,fileName:'static/Test_2048.zip'};
     const nModules = 10;
@@ -178,7 +217,7 @@ button0.addEventListener('click', () => {
                        lateralTexture:'static/PV_modules/1/textures/Aluminium.jpg'});
 
 });
-button1.addEventListener('click', () => {
+button2.addEventListener('click', () => {
 
     baselineMaterial = pvModule.children[0].material;
     pvLayout = new PVlayout({
@@ -194,7 +233,7 @@ button1.addEventListener('click', () => {
     scene.add(pvArray);
     sceneIndices['pvArray'] = scene.children[scene.children.length-1].id;
 });
-button2.addEventListener('click', () => {
+button3.addEventListener('click', () => {
     gpuEngine.computeShader(renderer,'cellsVoltage','baseline');
     gpuEngine.computeShader(renderer,'chainsVoltage','baseline');
     gpuEngine.computeShader(renderer,'chainsCurrent','baseline');
@@ -225,11 +264,11 @@ button2.addEventListener('click', () => {
         menu.showModal();
     });
 });
-button3.addEventListener('click', () => {
+button4.addEventListener('click', () => {
 
     pvArray.children[0].material = [pvArray.analysisMaterial,baselineMaterial[1],baselineMaterial[2]];
 });
-button4.addEventListener('click', () => {
+button5.addEventListener('click', () => {
 
     pvArray.children[0].material = baselineMaterial;
 });

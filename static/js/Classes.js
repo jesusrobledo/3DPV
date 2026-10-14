@@ -383,25 +383,24 @@ class PVmodule extends THREE.Group{
     constructor(){
         super();
     }
-    loadMesh(data){
+    async loadMesh(data){
         const loader = new OBJLoader();
         const textureLoader = new THREE.TextureLoader();
-        loader.load(data.fileName,async(group) =>{
-            if (group.children.length == 1){
-                const indexedGeometry = BufferGeometryUtils.mergeVertices(group.children[0].geometry);
-                group.children[0].geometry.dispose();
-                group.children[0].geometry = indexedGeometry;
-            }
-            else{
-                // Report some error
-            }
-            super.copy(group,true);
-            this.children[0].material[0].map = textureLoader.load(data.frontTexture);
-            this.children[0].material[1].map = textureLoader.load(data.rearTexture);
-            this.children[0].material[2].map = textureLoader.load(data.lateralTexture);
-            this.children[0].castShadow = true;
-            this.children[0].receiveShadow = true;
-        });
+        const group = await loader.loadAsync(data.fileName);
+        if (group.children.length == 1){
+            const indexedGeometry = BufferGeometryUtils.mergeVertices(group.children[0].geometry);
+            group.children[0].geometry.dispose();
+            group.children[0].geometry = indexedGeometry;
+        }
+        else{
+            // Report some error
+        }
+        super.copy(group,true);
+        this.children[0].material[0].map = textureLoader.load(data.frontTexture);
+        this.children[0].material[1].map = textureLoader.load(data.rearTexture);
+        this.children[0].material[2].map = textureLoader.load(data.lateralTexture);
+        this.children[0].castShadow = true;
+        this.children[0].receiveShadow = true;
     }
 }
 class PVlayout extends THREE.Group{
@@ -411,10 +410,15 @@ class PVlayout extends THREE.Group{
         const d = 1.15;
         const groups = [];
         this.nModules = data.nModules;
-        for (let i=0;i<data.nModules;i++){
+        //for (let i=0;i<data.nModules;i++){
+        for (let i=0;i<data.position.length;i++){
             // TODO: Adapt with proper allocation of the modules in the space
-            const position = new THREE.Vector3(-d*(data.nModules-1)/2+d*i,0.0,0.0);
-            const rotation = new THREE.Euler(0.0,0.0,0.0);
+            //const position = new THREE.Vector3(-d*(data.nModules-1)/2+d*i,0.0,0.0);
+            //const rotation = new THREE.Euler(0.0,0.0,0.0);
+            const position = new THREE.Vector3(data.position[i][0],data.position[i][1],data.position[i][2]);
+            const rotation = new THREE.Euler(data.rotation[i][0]*Math.PI/180,
+                                             data.rotation[i][1]*Math.PI/180,
+                                             data.rotation[i][2]*Math.PI/180);
             const scale = new THREE.Vector3(1,1,1);
             const quaternion = new THREE.Quaternion().setFromEuler(rotation);
             const matrix = new THREE.Matrix4();
@@ -450,27 +454,19 @@ class PVlayout extends THREE.Group{
 class PVarray extends THREE.Object3D{
     constructor(data){
         super();
-        const nX = data.nX;
-        const nY = data.nY;
-        const dX = data.dX;
-        const dY = data.dY;
         this.pvLayout = data.pvLayout;
         const instancedMesh = new THREE.InstancedMesh(data.pvLayout.children[0].geometry,
                                                       data.pvLayout.children[0].material,
-                                                      nX*nY);
+                                                      data.position.length);
         const dummy = new THREE.Object3D();
-        for (let j=0; j<nY; j++){
-            for (let i=0; i<nX; i++) {
-                dummy.position.set(-0.5*(nX-1)*dX + dX*i,
-                                   -0.5*(nY-1)*dY + dY*j,
-                                    300);
-                dummy.rotation.order = 'ZYX';
-                dummy.rotation.set(45.0*Math.PI/180,
-                                   0.0,
-                                   Math.PI/2);
-                dummy.updateMatrix();
-                instancedMesh.setMatrixAt(j*nX+i, dummy.matrix);
-            }
+        for (let i=0;i<data.position.length;i++){
+            dummy.position.set(data.position[i][0],data.position[i][1],data.position[i][2]);
+            dummy.rotation.order = 'ZYX';
+            dummy.rotation.set(data.rotation[i][0]*Math.PI/180,
+                               data.rotation[i][1]*Math.PI/180,
+                               data.rotation[i][2]*Math.PI/180);
+            dummy.updateMatrix();
+            instancedMesh.setMatrixAt(i, dummy.matrix);
         }
         instancedMesh.castShadow = true;
         instancedMesh.receiveShadow = true;
