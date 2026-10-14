@@ -148,12 +148,21 @@ button0.addEventListener('click', () => {
         irradiance[i] = 1000;
         temperature[i] = 25;
     }
-    irradiance[24] = 800;
+    /*
+    for (let i=24;i<36;i++)
+        irradiance[i] = 100;
     irradiance[48] = 750;
     irradiance[72] = 750;
     irradiance[96] = 600;
     irradiance[120] = 500;
     irradiance[144] = 400;
+    */
+    let moduleIrradiance=[1000,900,500,500,300,1000,800,800,800,800];
+    for (let iModule=0;iModule<nModules;iModule++){
+        for (let iCell=0;iCell<144;iCell++){
+            irradiance[iModule*144+iCell] = moduleIrradiance[iModule];
+        }
+    }
 
     gpuEngine.createArray({key:'baseline',
                            module:module,
@@ -189,19 +198,26 @@ button2.addEventListener('click', () => {
     gpuEngine.computeShader(renderer,'cellsVoltage','baseline');
     gpuEngine.computeShader(renderer,'chainsVoltage','baseline');
     gpuEngine.computeShader(renderer,'chainsCurrent','baseline');
-    gpuEngine.computeShader(renderer,'blocksCurrent','baseline').then(result =>{
+    gpuEngine.computeShader(renderer,'blocksCurrent','baseline');
+    gpuEngine.computeShader(renderer,'blocksVoltage','baseline');
+    gpuEngine.computeShader(renderer,'stringsVoltage','baseline').then(result =>{
         const graph_data = [];
         //for (let iChain=0;iChain<gpuEngine.array.baseline.nChains;iChain++){
         //for (let iChain=0;iChain<6;iChain++){
-        for (let iBlock=0;iBlock<6;iBlock++){
+        //for (let iBlock=0;iBlock<6;iBlock++){
+        for (let iString=0;iString<1;iString++){
             const x = [];
             const y = [];
             for (let i=0;i<gpuEngine.array.baseline.IVsize;i++){
                 //x.push(result[iChain*gpuEngine.array.baseline.IVsize+i]);
                 //y.push(10.0/(gpuEngine.array.baseline.IVsize-1)*i);
-                x.push(-1.0 + 18/(gpuEngine.array.baseline.IVsize-1)*i);
+                //x.push(-1.0 + 18/(gpuEngine.array.baseline.IVsize-1)*i);
                 //y.push(result[iChain*gpuEngine.array.baseline.IVsize+i]);
-                y.push(result[iBlock*gpuEngine.array.baseline.IVsize+i]);
+                //y.push(result[iBlock*gpuEngine.array.baseline.IVsize+i]);
+                //x.push(result[iBlock*gpuEngine.array.baseline.IVsize+i]);
+                //y.push(20.0/(gpuEngine.array.baseline.IVsize-1)*i);
+                x.push(result[iString*gpuEngine.array.baseline.IVsize+i]);
+                y.push(20.0/(gpuEngine.array.baseline.IVsize-1)*i*x[x.length-1]);
             }
             graph_data.push({x:x,y:y,mode:'lines'});
         }
