@@ -102,8 +102,8 @@ class GPUengine{
         Tmax: 80,
         Gmin: 0,
         Gmax: 1200,
-        Imin: 0,
-        Imax: 10
+        IminCell: 0,
+        ImaxCell: 10
     });
     constructor(){
         this.array = {};
@@ -153,81 +153,6 @@ class GPUengine{
             return float(Id);
         });
 
-        // Cells operation
-        this.cellsVoltage = Fn(([key]) => {
-            
-            // Normalizing
-            const irradiance = this.normalizeValue(this.array[key].cell.node.irradiance.element(instanceIndex),
-                                                   this.array[key].Gmin,
-                                                   this.array[key].Gmax);
-            const temperature = this.normalizeValue(this.array[key].cell.node.temperature.element(instanceIndex),
-                                                    this.array[key].Tmin,
-                                                    this.array[key].Tmax);
-
-            Loop({start:0,end:this.array[key].IVsize},({i}) => {
-                const current = this.normalizeValue(this.array[key].currentVector.element(i),
-                                                    this.array[key].Imin,
-                                                    this.array[key].Imax);
-                const data = vec3(temperature,irradiance,current);
-                const value = texture3D(this.array[key].LUT,data).r;
-                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i);
-;               this.array[key].cell.node.voltage.element(globalIndex).assign(value);
-            });
-        });
-
-        // Chains operation
-        this.chainsVoltage = Fn(([key]) => {
-            Loop({start:0,end:this.array[key].IVsize},({i:i1}) =>{
-                const _i1 = i1.toVar();
-                const value = Var(0.0);
-                Loop({start:0,end:this.array[key].nCellsPerChain},({i:i2}) => {
-                    const cellIndex = instanceIndex.mul(this.array[key].nCellsPerChain*this.array[key].IVsize).
-                                      add(i2.mul(this.array[key].IVsize)).
-                                      add(_i1);
-                    value.addAssign(this.array[key].cell.node.voltage.element(cellIndex));
-                });
-                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i1);
-                this.array[key].chain.node.voltage.element(globalIndex).assign(value);
-            });
-        });
-        this.chainsCurrent = Fn(([key]) => {
-            Loop({start:0,end:this.array[key].IVsize},({i}) => {
-                const dummy = Var(this.array[key].IVsize).sub(1);
-                const voltage = Var(-1.0).add(float(i).mul(18.0).div(dummy));
-                const data = this.binarySearchDecrease(instanceIndex,voltage,this.array[key].chain.node.voltage,this.array[key].IVsize);
-                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i);
-                const value = (data.x).sub(data.y).mul(0.10101);
-                this.array[key].chain.node.current.element(globalIndex).assign(value);
-            });
-        });
-
-        // Blocks operation
-        this.blocksCurrent = Fn(([key]) => {
-            Loop({start:0,end:this.array[key].IVsize},({i:i1}) =>{
-                const _i1 = i1.toVar();
-                const value = Var(0.0);
-                Loop({start:0,end:this.array[key].nChainsPerDiode},({i:i2}) => {
-                    const chainIndex = instanceIndex.mul(this.array[key].nChainsPerDiode*this.array[key].IVsize).
-                                      add(i2.mul(this.array[key].IVsize)).
-                                      add(_i1);
-                    value.addAssign(this.array[key].chain.node.current.element(chainIndex));
-                });
-                value.addAssign(this.diodeCurrent(this.array[key].voltageVector.element(i1).mul(-1)));
-                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i1);
-                this.array[key].block.node.current.element(globalIndex).assign(value);
-            });
-        });
-        this.blocksVoltage = Fn(([key]) => {
-            Loop({start:0,end:this.array[key].IVsize},({i}) => {
-                const dummy = Var(this.array[key].IVsize).sub(1);
-                const current = float(i).mul(20.0).div(dummy);
-                const data = this.binarySearchDecrease(instanceIndex,current,this.array[key].block.node.current,this.array[key].IVsize);
-                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i);
-                const value = (data.x).sub(data.y).mul(0.19191).sub(1);
-                this.array[key].block.node.voltage.element(globalIndex).assign(value);
-            });
-        });
-
         // Strings operation
         this.stringsVoltage = Fn(([key]) => {
             Loop({start:0,end:this.array[key].IVsize},({i:i1}) =>{
@@ -272,13 +197,18 @@ class GPUengine{
         this.array[key]['IVsize'] = IVsize;
 
         const currentVector = new Float32Array(IVsize);
+        this.array[key]['ImaxCell'] = data.module.ImaxCell;
         for (let i=0;i<currentVector.length;i++)
-            currentVector[i] = 10/(IVsize-1)*i;
+            currentVector[i] = this.array[key]['ImaxCell']/(IVsize-1)*i;
         this.array[key]['currentVector'] = instancedArray(currentVector,'float');
 
         const voltageVector = new Float32Array(IVsize);
-        for (let i=0;i<voltageVector.length;i++)
-            voltageVector[i] = -1.0 + 18/(IVsize-1)*i;
+        this.array[key]['VchainMin'] = data.module.VchainMin;
+        this.array[key]['VchainMax'] = data.module.VchainMax;
+        for (let i=0;i<voltageVector.length;i++){
+            voltageVector[i] = this.array[key]['VchainMin']  +
+                               (this.array[key]['VchainMax']-this.array[key]['VchainMin'])/(IVsize-1)*i;
+        }
         this.array[key]['voltageVector'] = instancedArray(voltageVector,'float');
 
         // Individual cells
@@ -295,8 +225,10 @@ class GPUengine{
         }
 
         // Individual chains
-        const chainAttribute = {'voltage':{size:IVsize},
-                                'current':{size:IVsize}};
+        const chainAttribute = {
+                                'voltage':{size:IVsize},
+                                'current':{size:IVsize}
+                                };
         this.array[key]['nChainsPerDiode'] = data.module.nChainsPerDiode;
         this.array[key]['nChains'] = data.module.nChainsPerDiode * data.module.nDiodes * data.nModules;
         this.array[key]['chain'] = {attribute:{},node:{}};
@@ -306,9 +238,12 @@ class GPUengine{
         }
 
         // Individual blocks
-        const blockAttribute = {'voltage':{size:IVsize},
-                                'current':{size:IVsize}};
+        const blockAttribute = {
+                                'voltage':{size:IVsize},
+                                'current':{size:IVsize}
+                                };
         this.array[key]['nBlocks'] = data.module.nDiodes * data.nModules;
+        this.array[key]['ImaxBlock'] = data.module.nChainsPerDiode*this.array[key].ImaxCell;
         this.array[key]['block'] = {attribute:{},node:{}};
         for (let keyAttr in blockAttribute){
             this.array[key].block.attribute[keyAttr] = new THREE.StorageBufferAttribute(new Float32Array(this.array[key].nBlocks*blockAttribute[keyAttr].size),1);
@@ -316,14 +251,16 @@ class GPUengine{
         }
 
         // Individual strings
-        const stringAttribute = {'voltage':{size:IVsize},
-                                'current':{size:IVsize}};
+        const stringAttribute = {
+                                'voltage':{size:IVsize},
+                                'current':{size:IVsize}
+                                };
         this.array[key]['nBlocksPerString'] = data.nModules*data.module.nDiodes;
-        this.array[key]['nStrings'] = 1;
+        this.array[key]['strings'] = data.strings;
         this.array[key]['string'] = {attribute:{},node:{}};
         for (let keyAttr in stringAttribute){
-            this.array[key].string.attribute[keyAttr] = new THREE.StorageBufferAttribute(new Float32Array(this.array[key].nStrings*stringAttribute[keyAttr].size),1);
-            this.array[key].string.node[keyAttr] = storage(this.array[key].string.attribute[keyAttr],'float',this.array[key].nStrings*stringAttribute[keyAttr].size);
+            this.array[key].string.attribute[keyAttr] = new THREE.StorageBufferAttribute(new Float32Array(this.array[key].strings.length*stringAttribute[keyAttr].size),1);
+            this.array[key].string.node[keyAttr] = storage(this.array[key].string.attribute[keyAttr],'float',this.array[key].strings.length*stringAttribute[keyAttr].size);
         }
 
         // Upload the Lookup table used for that array
@@ -334,9 +271,88 @@ class GPUengine{
         this.array[key].Tmax = 80;
         this.array[key].Gmin = 0;
         this.array[key].Gmax = 1200;
-        this.array[key].Imin = 0;
-        this.array[key].Imax = 10;
-        this.loadLUT(data.module.fileName,key);
+        this.array[key].IminCell = 0;
+        this.array[key].ImaxCell = 10;
+        //this.loadLUT(data.module.fileName,key);
+        this.loadLUT(data.module.fileLUT,key);
+
+        // Create the shaders required ////////////////////////////////////////
+        // Cells operation
+        this.cellsVoltage = Fn(([key]) => {
+
+            // Normalizing
+            const irradiance = this.normalizeValue(this.array[key].cell.node.irradiance.element(instanceIndex),
+                                                   this.array[key].Gmin,
+                                                   this.array[key].Gmax);
+            const temperature = this.normalizeValue(this.array[key].cell.node.temperature.element(instanceIndex),
+                                                    this.array[key].Tmin,
+                                                    this.array[key].Tmax);
+
+            Loop({start:0,end:this.array[key].IVsize},({i}) => {
+                const current = this.normalizeValue(this.array[key].currentVector.element(i),
+                                                    this.array[key].IminCell,
+                                                    this.array[key].ImaxCell);
+                const data = vec3(temperature,irradiance,current);
+                const value = texture3D(this.array[key].LUT,data).r;
+                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i);
+;               this.array[key].cell.node.voltage.element(globalIndex).assign(value);
+            });
+        });
+
+        // Chains operation
+        this.chainsVoltage = Fn(([key]) => {
+            Loop({start:0,end:this.array[key].IVsize},({i:i1}) =>{
+                const _i1 = i1.toVar();
+                const value = Var(0.0);
+                Loop({start:0,end:this.array[key].nCellsPerChain},({i:i2}) => {
+                    const cellIndex = instanceIndex.mul(this.array[key].nCellsPerChain*this.array[key].IVsize).
+                                      add(i2.mul(this.array[key].IVsize)).
+                                      add(_i1);
+                    value.addAssign(this.array[key].cell.node.voltage.element(cellIndex));
+                });
+                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i1);
+                this.array[key].chain.node.voltage.element(globalIndex).assign(value);
+            });
+        });
+        this.chainsCurrent = Fn(([key]) => {
+            Loop({start:0,end:this.array[key].IVsize},({i}) => {
+                const deltaVoltage = this.array[key].VchainMax - this.array[key].VchainMin;
+                const voltage = Var(this.array[key].VchainMin).
+                                add(float(i).mul(deltaVoltage).
+                                div(this.array[key].IVsize-1));
+                const data = this.binarySearchDecrease(instanceIndex,voltage,this.array[key].chain.node.voltage,this.array[key].IVsize);
+                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i);
+                const value = (data.x).sub(data.y).mul(this.array[key].ImaxCell/(this.array[key].IVsize-1));
+                this.array[key].chain.node.current.element(globalIndex).assign(value);
+            });
+        });
+
+        // Blocks operation
+        this.blocksCurrent = Fn(([key]) => {
+            Loop({start:0,end:this.array[key].IVsize},({i:i1}) =>{
+                const _i1 = i1.toVar();
+                const value = Var(0.0);
+                Loop({start:0,end:this.array[key].nChainsPerDiode},({i:i2}) => {
+                    const chainIndex = instanceIndex.mul(this.array[key].nChainsPerDiode*this.array[key].IVsize).
+                                      add(i2.mul(this.array[key].IVsize)).
+                                      add(_i1);
+                    value.addAssign(this.array[key].chain.node.current.element(chainIndex));
+                });
+                value.addAssign(this.diodeCurrent(this.array[key].voltageVector.element(i1).mul(-1)));
+                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i1);
+                this.array[key].block.node.current.element(globalIndex).assign(value);
+            });
+        });
+        this.blocksVoltage = Fn(([key]) => {
+            Loop({start:0,end:this.array[key].IVsize},({i}) => {
+                //const dummy = Var(this.array[key].IVsize).sub(1);
+                const current = float(i).mul(this.array[key].nChainsPerDiode*this.array[key].ImaxCell).div(this.array[key].IVsize-1);
+                const data = this.binarySearchDecrease(instanceIndex,current,this.array[key].block.node.current,this.array[key].IVsize);
+                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i);
+                const value = (data.x).sub(data.y).mul((0.19191)).sub(1);
+                this.array[key].block.node.voltage.element(globalIndex).assign(value);
+            });
+        });
     }
     updateBuffer(keyArray,element,keyAttr,data){
         switch(element){
@@ -373,8 +389,8 @@ class GPUengine{
                 break;
             case 'stringsVoltage':
                 await renderer.computeAsync(this.stringsVoltage(key).compute(this.array[key].nStrings));
-                const data = await renderer.getArrayBufferAsync(this.array[key].string.attribute.voltage);
-                return new Float32Array(data);
+                //const data = await renderer.getArrayBufferAsync(this.array[key].string.attribute.voltage);
+                //return new Float32Array(data);
                 break;
         }
     }

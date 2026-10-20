@@ -131,6 +131,28 @@ function identifyPointerPosition(event){
         controls.target = intersects[0].point;
     }
 }
+function updateGraph(data){
+    const graph_data = [];
+    let gpuData;
+    switch (data.option){
+        case "blocks":
+            gpuData = renderer.getArrayBufferAsync(gpuEngine.array[data.key].block.attribute.voltage).then((result) => {
+                gpuData = new Float32Array(result);
+                for (let iBlock=0;iBlock<data.blocks.length;iBlock++){
+                    const x = [];
+                    const y = [];
+                    for (let i=0;i<gpuEngine.array[data.key].IVsize;i++){
+                        x.push(gpuData[data.blocks[iBlock]*gpuEngine.array[data.key].IVsize+i]);
+                        y.push(20.0/(gpuEngine.array[data.key].IVsize-1)*i);
+                    }
+                    graph_data.push({x:x,y:y,mode:'lines'});
+                }
+                Plotly.newPlot('graph',graph_data,graph_layout);
+                menu.showModal();
+            });
+            break;
+    }
+}
 
 // Main render loop
 function animate() {
@@ -176,11 +198,15 @@ button0.addEventListener('click', () => {
             sceneIndices['pvArray'] = scene.children[scene.children.length-1].id;
 
             // GPU engine definition
+            /*
             const module = {nCellsPerChain:result.arrays.A1.layouts.L1.pvModule.nCellsPerChain,
                             nChainsPerDiode:result.arrays.A1.layouts.L1.pvModule.nChainsPerDiode,
                             nDiodes:result.arrays.A1.layouts.L1.pvModule.nDiodes,
                             fileName:result.arrays.A1.layouts.L1.pvModule.fileLUT};
+                            */
+            const module = result.arrays.A1.layouts.L1.pvModule;
             const nModules = result.arrays.A1.layouts.L1.position.length * result.arrays.A1.position.length;
+            const strings = result.arrays.A1.strings;
             const irradiance = new Float32Array(module.nCellsPerChain*module.nChainsPerDiode*module.nDiodes*nModules);
             const temperature = new Float32Array(module.nCellsPerChain*module.nChainsPerDiode*module.nDiodes*nModules);
             for (let i=0;i<irradiance.length;i++){
@@ -195,67 +221,25 @@ button0.addEventListener('click', () => {
             }
             gpuEngine.createArray({key:'baseline',
                                    module:module,
-                                   nModules:nModules}
-                                   );
+                                   nModules:nModules,
+                                   strings:strings});
             gpuEngine.updateBuffer('baseline','cell','irradiance',irradiance);
             gpuEngine.updateBuffer('baseline','cell','temperature',temperature);
         });
     });
 });
 button1.addEventListener('click', () => {
-    /*
-    const module = {nCellsPerChain:24,nChainsPerDiode:2,nDiodes:3,fileName:'static/Test_2048.zip'};
-    const nModules = 10;
-    const irradiance = new Float32Array(module.nCellsPerChain*module.nChainsPerDiode*module.nDiodes*nModules);
-    const temperature = new Float32Array(module.nCellsPerChain*module.nChainsPerDiode*module.nDiodes*nModules);
-    for (let i=0;i<irradiance.length;i++){
-        irradiance[i] = 1000;
-        temperature[i] = 25;
-    }
-    for (let i=24;i<36;i++)
-        irradiance[i] = 100;
-    irradiance[48] = 750;
-    irradiance[72] = 750;
-    irradiance[96] = 600;
-    irradiance[120] = 500;
-    irradiance[144] = 400;
-    let moduleIrradiance=[1000,900,500,500,300,1000,800,800,800,800];
-    for (let iModule=0;iModule<nModules;iModule++){
-        for (let iCell=0;iCell<144;iCell++){
-            irradiance[iModule*144+iCell] = moduleIrradiance[iModule];
-        }
-    }
-
-    gpuEngine.createArray({key:'baseline',
-                           module:module,
-                           nModules:nModules}
-                           );
-    gpuEngine.updateBuffer('baseline','cell','irradiance',irradiance);
-    gpuEngine.updateBuffer('baseline','cell','temperature',temperature);
-
-    pvModule = new PVmodule();
-    pvModule.loadMesh({fileName:'/static/PV_modules/1/Test.obj',
-                       frontTexture:'static/PV_modules/1/textures/Mono_6x24_Front.jpg',
-                       rearTexture:'static/PV_modules/1/textures/Mono_6x24_Rear_Bifacial.jpg',
-                       lateralTexture:'static/PV_modules/1/textures/Aluminium.jpg'});
-    */
+    gpuEngine.computeShader(renderer,'cellsVoltage','baseline');
+    gpuEngine.computeShader(renderer,'chainsVoltage','baseline');
+    gpuEngine.computeShader(renderer,'chainsCurrent','baseline');
+    gpuEngine.computeShader(renderer,'blocksCurrent','baseline');
+    gpuEngine.computeShader(renderer,'blocksVoltage','baseline').then(()=>{alert("GPU done")});
+    //gpuEngine.computeShader(renderer,'stringsVoltage','baseline');
 });
 button2.addEventListener('click', () => {
-    /*
-    baselineMaterial = pvModule.children[0].material;
-    pvLayout = new PVlayout({
-                             pvModule:pvModule,
-                             nModules:10}
-                             );
-    pvArray = new PVarray({pvLayout:pvLayout,
-                           nX:100,
-                           nY:10,
-                           dX:5,
-                           dY:12});
-    pvArray.position.set(0.0,0.0,250.0);
-    scene.add(pvArray);
-    sceneIndices['pvArray'] = scene.children[scene.children.length-1].id;
-    */
+    updateGraph({key:"baseline",
+                 option:'blocks',
+                 blocks:[0,1,3]});
 });
 button3.addEventListener('click', () => {
     gpuEngine.computeShader(renderer,'cellsVoltage','baseline');
