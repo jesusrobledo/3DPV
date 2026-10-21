@@ -152,22 +152,6 @@ class GPUengine{
             const Id = Is.mul(exp(exponent).sub(1.0));
             return float(Id);
         });
-
-        // Strings operation
-        this.stringsVoltage = Fn(([key]) => {
-            Loop({start:0,end:this.array[key].IVsize},({i:i1}) =>{
-                const _i1 = i1.toVar();
-                const value = Var(0.0);
-                Loop({start:0,end:this.array[key].nBlocksPerString},({i:i2}) => {
-                    const stringIndex = instanceIndex.mul(this.array[key].nBlocksPerString*this.array[key].IVsize).
-                                      add(i2.mul(this.array[key].IVsize)).
-                                      add(_i1);
-                    value.addAssign(this.array[key].block.node.voltage.element(stringIndex));
-                });
-                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i1);
-                this.array[key].string.node.voltage.element(globalIndex).assign(value);
-            });
-        });
     }
 
     async loadLUT(fileName,key){
@@ -257,11 +241,23 @@ class GPUengine{
                                 };
         this.array[key]['nBlocksPerString'] = data.nModules*data.module.nDiodes;
         this.array[key]['strings'] = data.strings;
+        this.array[key]['nStrings'] = data.strings.length;
         this.array[key]['string'] = {attribute:{},node:{}};
         for (let keyAttr in stringAttribute){
-            this.array[key].string.attribute[keyAttr] = new THREE.StorageBufferAttribute(new Float32Array(this.array[key].strings.length*stringAttribute[keyAttr].size),1);
-            this.array[key].string.node[keyAttr] = storage(this.array[key].string.attribute[keyAttr],'float',this.array[key].strings.length*stringAttribute[keyAttr].size);
+            this.array[key].string.attribute[keyAttr] = new THREE.StorageBufferAttribute(new Float32Array(this.array[key].nStrings*stringAttribute[keyAttr].size),1);
+            this.array[key].string.node[keyAttr] = storage(this.array[key].string.attribute[keyAttr],'float',this.array[key].nStrings*stringAttribute[keyAttr].size);
         }
+        // Define the indices of the modules as attributes for the strings
+        const stringConnection = data.strings.flat();
+        const stringConnectionAttribute = new THREE.StorageBufferAttribute(new Float32Array(stringConnection));
+        this.array[key]['stringConnection'] = storage(stringConnectionAttribute,'float',stringConnection.length);
+        this.array[key]['nPVmodules'] = [];
+        const nPVmodules = []
+        for (let iString=0;iString<this.array[key]['nStrings'];iString++)
+            nPVmodules.push(this.array[key]['strings'][iString].length);
+        this.array[key]['nPVmodules'] = uniformArray(nPVmodules);
+
+
 
         // Upload the Lookup table used for that array
         this.array[key].nT = 32;
@@ -315,14 +311,15 @@ class GPUengine{
             });
         });
         this.chainsCurrent = Fn(([key]) => {
+            const deltaVoltage = this.array[key].VchainMax - this.array[key].VchainMin;
+            const currentStep = this.array[key].ImaxCell/(this.array[key].IVsize-1);
             Loop({start:0,end:this.array[key].IVsize},({i}) => {
-                const deltaVoltage = this.array[key].VchainMax - this.array[key].VchainMin;
                 const voltage = Var(this.array[key].VchainMin).
                                 add(float(i).mul(deltaVoltage).
                                 div(this.array[key].IVsize-1));
                 const data = this.binarySearchDecrease(instanceIndex,voltage,this.array[key].chain.node.voltage,this.array[key].IVsize);
                 const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i);
-                const value = (data.x).sub(data.y).mul(this.array[key].ImaxCell/(this.array[key].IVsize-1));
+                const value = (data.x).sub(data.y).mul(currentStep);
                 this.array[key].chain.node.current.element(globalIndex).assign(value);
             });
         });
@@ -344,15 +341,56 @@ class GPUengine{
             });
         });
         this.blocksVoltage = Fn(([key]) => {
+            const currentStep = this.array[key].nChainsPerDiode*this.array[key].ImaxCell/(this.array[key].IVsize-1);
             Loop({start:0,end:this.array[key].IVsize},({i}) => {
-                //const dummy = Var(this.array[key].IVsize).sub(1);
                 const current = float(i).mul(this.array[key].nChainsPerDiode*this.array[key].ImaxCell).div(this.array[key].IVsize-1);
                 const data = this.binarySearchDecrease(instanceIndex,current,this.array[key].block.node.current,this.array[key].IVsize);
                 const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i);
-                const value = (data.x).sub(data.y).mul((0.19191)).sub(1);
+                const value = (data.x).sub(data.y).mul(currentStep).sub(1);
                 this.array[key].block.node.voltage.element(globalIndex).assign(value);
             });
         });
+
+        // Strings operation
+        this.stringsVoltage = Fn(([key]) => {
+            Loop({start:0,end:this.array[key].IVsize},({i:i1}) =>{
+                const _i1 = i1.toVar();
+                const value = Var(0.0);
+                const test = this.array[key].nPVmodules[0];
+                /*
+                Loop({start:0,end:5},({i:i2}) =>{
+                    //const _i2 = i2.toVar();
+                    //const moduleIndex = this.array[key].string[i2];
+                    //value.addAssign(this.array[key].stringConnection.element(i2));
+                    value.addAssign(this.array[key].stringConnection.element(i2));
+                });
+                */
+                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i1);
+                const testIndex = instanceIndex;
+                this.array[key].string.node.voltage.element(globalIndex).assign(this.array[key].nPVmodules.element(instanceIndex));
+
+                //this.array[key].string.node.voltage.element(globalIndex).assign(value);
+
+                //const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i1);
+                //this.array[key].string.node.voltage.element(globalIndex).assign(3.14);
+            });
+        });
+        /*
+        this.stringsVoltage = Fn(([key]) => {
+            Loop({start:0,end:this.array[key].IVsize},({i:i1}) =>{
+                const _i1 = i1.toVar();
+                const value = Var(0.0);
+                Loop({start:0,end:this.array[key].nBlocksPerString},({i:i2}) => {
+                    const stringIndex = instanceIndex.mul(this.array[key].nBlocksPerString*this.array[key].IVsize).
+                                      add(i2.mul(this.array[key].IVsize)).
+                                      add(_i1);
+                    value.addAssign(this.array[key].block.node.voltage.element(stringIndex));
+                });
+                const globalIndex = instanceIndex.mul(this.array[key].IVsize).add(i1);
+                this.array[key].string.node.voltage.element(globalIndex).assign(value);
+            });
+        });
+        */
     }
     updateBuffer(keyArray,element,keyAttr,data){
         switch(element){
@@ -369,28 +407,18 @@ class GPUengine{
                 break;
             case 'chainsVoltage':
                 await renderer.computeAsync(this.chainsVoltage(key).compute(this.array[key].nChains));
-                //const data = await renderer.getArrayBufferAsync(this.array[key].chain.attribute.voltage);
-                //return new Float32Array(data);
                 break;
             case 'chainsCurrent':
                 await renderer.computeAsync(this.chainsCurrent(key).compute(this.array[key].nChains));
-                //const data = await renderer.getArrayBufferAsync(this.array[key].chain.attribute.current);
-                //return new Float32Array(data);
                 break;
             case 'blocksCurrent':
                 await renderer.computeAsync(this.blocksCurrent(key).compute(this.array[key].nBlocks));
-                //const data = await renderer.getArrayBufferAsync(this.array[key].block.attribute.current);
-                //return new Float32Array(data);
                 break;
             case 'blocksVoltage':
                 await renderer.computeAsync(this.blocksVoltage(key).compute(this.array[key].nBlocks));
-                //const data = await renderer.getArrayBufferAsync(this.array[key].block.attribute.voltage);
-                //return new Float32Array(data);
                 break;
             case 'stringsVoltage':
                 await renderer.computeAsync(this.stringsVoltage(key).compute(this.array[key].nStrings));
-                //const data = await renderer.getArrayBufferAsync(this.array[key].string.attribute.voltage);
-                //return new Float32Array(data);
                 break;
         }
     }

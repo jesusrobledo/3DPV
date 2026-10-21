@@ -151,6 +151,22 @@ function updateGraph(data){
                 menu.showModal();
             });
             break;
+        case "strings":
+            gpuData = renderer.getArrayBufferAsync(gpuEngine.array[data.key].string.attribute.voltage).then((result) => {
+                gpuData = new Float32Array(result);
+                for (let iString=0;iString<gpuEngine.array.baseline.nStrings;iString++){
+                    const x = [];
+                    const y = [];
+                    for (let i=0;i<gpuEngine.array[data.key].IVsize;i++){
+                        x.push(gpuData[iString*gpuEngine.array[data.key].IVsize+i]);
+                        y.push(20.0/(gpuEngine.array[data.key].IVsize-1)*i);
+                    }
+                    graph_data.push({x:x,y:y,mode:'lines'});
+                }
+                Plotly.newPlot('graph',graph_data,graph_layout);
+                menu.showModal();
+            });
+            break;
     }
 }
 
@@ -198,12 +214,6 @@ button0.addEventListener('click', () => {
             sceneIndices['pvArray'] = scene.children[scene.children.length-1].id;
 
             // GPU engine definition
-            /*
-            const module = {nCellsPerChain:result.arrays.A1.layouts.L1.pvModule.nCellsPerChain,
-                            nChainsPerDiode:result.arrays.A1.layouts.L1.pvModule.nChainsPerDiode,
-                            nDiodes:result.arrays.A1.layouts.L1.pvModule.nDiodes,
-                            fileName:result.arrays.A1.layouts.L1.pvModule.fileLUT};
-                            */
             const module = result.arrays.A1.layouts.L1.pvModule;
             const nModules = result.arrays.A1.layouts.L1.position.length * result.arrays.A1.position.length;
             const strings = result.arrays.A1.strings;
@@ -233,13 +243,17 @@ button1.addEventListener('click', () => {
     gpuEngine.computeShader(renderer,'chainsVoltage','baseline');
     gpuEngine.computeShader(renderer,'chainsCurrent','baseline');
     gpuEngine.computeShader(renderer,'blocksCurrent','baseline');
-    gpuEngine.computeShader(renderer,'blocksVoltage','baseline').then(()=>{alert("GPU done")});
-    //gpuEngine.computeShader(renderer,'stringsVoltage','baseline');
+    gpuEngine.computeShader(renderer,'blocksVoltage','baseline');
+    gpuEngine.computeShader(renderer,'stringsVoltage','baseline').then(()=>{alert("GPU done")});
 });
 button2.addEventListener('click', () => {
+    /*
     updateGraph({key:"baseline",
                  option:'blocks',
                  blocks:[0,1,3]});
+    */
+    updateGraph({key:"baseline",
+                 option:'strings'});
 });
 button3.addEventListener('click', () => {
     gpuEngine.computeShader(renderer,'cellsVoltage','baseline');
